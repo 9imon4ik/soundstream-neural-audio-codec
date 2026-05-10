@@ -2,6 +2,7 @@ import warnings
 
 import hydra
 import torch
+from dotenv import load_dotenv
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
@@ -10,6 +11,7 @@ from src.trainer import Trainer
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
 
 warnings.filterwarnings("ignore", category=UserWarning)
+load_dotenv()
 
 
 @hydra.main(version_base=None, config_path="src/configs", config_name="baseline")

@@ -1,0 +1,13 @@
+train:
+  _target_: src.datasets.librispeech.LibriSpeechDataset
+  root_dir: ${data.train_root}
+  sample_rate: ${audio.sample_rate}
+  crop_seconds: ${audio.crop_seconds}
+  is_train: true
+
+test:
+  _target_: src.datasets.librispeech.LibriSpeechDataset
+  root_dir: ${data.test_root}
+  sample_rate: ${audio.sample_rate}
+  crop_seconds: ${audio.crop_seconds}
+  is_train: false

@@ -1,0 +1,66 @@
+defaults:
+  - model: baseline
+  - writer: cometml
+  - metrics: example
+  - datasets: librispeech
+  - dataloader: example
+  - transforms: soundstream
+  - _self_
+
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 3e-4
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  gamma: 1.0
+  step_size: ${trainer.epoch_len}
+
+loss_function:
+  _target_: src.loss.ExampleLoss
+
+trainer:
+  seed: 1
+  device: auto
+  log_step: 50
+  n_epochs: 100
+  epoch_len: 450
+  device_tensors: ["audio"]
+  resume_from: null
+  override: false
+  monitor: "off"
+  save_period: 5
+  early_stop: ${trainer.n_epochs}
+  save_dir: "saved"
+
+data:
+  train_root: "data/LibriSpeech/LibriSpeech/train-clean-100"
+  test_root: "data/LibriSpeech/LibriSpeech/test-clean"
+
+audio:
+  sample_rate: 16000
+  crop_seconds: 0.5
+  crop_size: 8000
+  channels: 1
+
+model_params:
+  strides: [2, 4, 5, 5]
+  encoder_channels: 32
+  embedding_dim: 128
+  causal: true
+  use_film: false
+  use_bitrate_dropout: false
+
+rvq:
+  num_quantizers: 8
+  codebook_size: 1024
+  commitment_loss_weight: 1.0
+
+loss_weights:
+  adversarial: 1.0
+  feature_matching: 100.0
+  reconstruction: 1.0
+  commitment: 1.0
+
+discriminator:
+  leaky_relu_slope: 0.2

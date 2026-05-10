@@ -9,6 +9,7 @@ wandb
 comet_ml
 hydra-core
 omegaconf
+python-dotenv
 soundfile
 librosa
 scipy
