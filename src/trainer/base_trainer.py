@@ -1,8 +1,6 @@
 from abc import abstractmethod
 
 import torch
-from numpy import inf
-from torch.nn.utils import clip_grad_norm_
 from tqdm.auto import tqdm
 
 from src.datasets.data_utils import inf_loop
@@ -17,11 +15,13 @@ class BaseTrainer:
 
     def __init__(
         self,
-        model,
-        criterion,
+        generator,
+        discriminator,
+        generator_criterion,
+        discriminator_criterion,
         metrics,
-        optimizer,
-        lr_scheduler,
+        generator_optimizer,
+        discriminator_optimizer,
         config,
         device,
         dataloaders,
@@ -29,18 +29,18 @@ class BaseTrainer:
         writer,
         epoch_len=None,
         skip_oom=True,
-        batch_transforms=None,
     ):
         """
         Args:
-            model (nn.Module): PyTorch model.
-            criterion (nn.Module): loss function for model training.
+            generator (nn.Module): encoder-quantizer-decoder model.
+            discriminator (nn.Module): discriminator model.
+            generator_criterion (nn.Module): generator loss function.
+            discriminator_criterion (nn.Module): discriminator loss function.
             metrics (dict): dict with the definition of metrics for training
                 (metrics[train]) and inference (metrics[inference]). Each
                 metric is an instance of src.metrics.BaseMetric.
-            optimizer (Optimizer): optimizer for the model.
-            lr_scheduler (LRScheduler): learning rate scheduler for the
-                optimizer.
+            generator_optimizer (Optimizer): optimizer for the generator.
+            discriminator_optimizer (Optimizer): optimizer for the discriminator.
             config (DictConfig): experiment config containing training config.
             device (str): device for tensors and model.
             dataloaders (dict[DataLoader]): dataloaders for different
@@ -51,9 +51,6 @@ class BaseTrainer:
                 iteration-based training. If None, use epoch-based
                 training (len(dataloader)).
             skip_oom (bool): skip batches with the OutOfMemory error.
-            batch_transforms (dict[Callable] | None): transforms that
-                should be applied on the whole batch. Depend on the
-                tensor name.
         """
         self.is_train = True
 
@@ -66,11 +63,12 @@ class BaseTrainer:
         self.logger = logger
         self.log_step = config.trainer.get("log_step", 50)
 
-        self.model = model
-        self.criterion = criterion
-        self.optimizer = optimizer
-        self.lr_scheduler = lr_scheduler
-        self.batch_transforms = batch_transforms
+        self.generator = generator
+        self.discriminator = discriminator
+        self.generator_criterion = generator_criterion
+        self.discriminator_criterion = discriminator_criterion
+        self.generator_optimizer = generator_optimizer
+        self.discriminator_optimizer = discriminator_optimizer
 
         # define dataloaders
         self.train_dataloader = dataloaders["train"]
@@ -91,26 +89,7 @@ class BaseTrainer:
         self.start_epoch = 1
         self.epochs = self.cfg_trainer.n_epochs
 
-        # configuration to monitor model performance and save best
-
-        self.save_period = (
-            self.cfg_trainer.save_period
-        )  # checkpoint each save_period epochs
-        self.monitor = self.cfg_trainer.get(
-            "monitor", "off"
-        )  # format: "mnt_mode mnt_metric"
-
-        if self.monitor == "off":
-            self.mnt_mode = "off"
-            self.mnt_best = 0
-        else:
-            self.mnt_mode, self.mnt_metric = self.monitor.split()
-            assert self.mnt_mode in ["min", "max"]
-
-            self.mnt_best = inf if self.mnt_mode == "min" else -inf
-            self.early_stop = self.cfg_trainer.get("early_stop", inf)
-            if self.early_stop <= 0:
-                self.early_stop = inf
+        self.save_period = self.cfg_trainer.save_period
 
         # setup visualization writer instance
         self.writer = writer
@@ -139,9 +118,6 @@ class BaseTrainer:
             resume_path = self.checkpoint_dir / config.trainer.resume_from
             self._resume_checkpoint(resume_path)
 
-        if config.trainer.get("from_pretrained") is not None:
-            self._from_pretrained(config.trainer.get("from_pretrained"))
-
     def train(self):
         """
         Wrapper around training process to save model on keyboard interrupt.
@@ -158,10 +134,8 @@ class BaseTrainer:
         Full training logic:
 
         Training model for an epoch, evaluating it on non-train partitions,
-        and monitoring the performance improvement (for early stopping
-        and saving the best checkpoint).
+        and saving checkpoints periodically.
         """
-        not_improved_count = 0
         for epoch in range(self.start_epoch, self.epochs + 1):
             self._last_epoch = epoch
             result = self._train_epoch(epoch)
@@ -174,17 +148,8 @@ class BaseTrainer:
             for key, value in logs.items():
                 self.logger.info(f"    {key:15s}: {value}")
 
-            # evaluate model performance according to configured metric,
-            # save best checkpoint as model_best
-            best, stop_process, not_improved_count = self._monitor_performance(
-                logs, not_improved_count
-            )
-
-            if epoch % self.save_period == 0 or best:
-                self._save_checkpoint(epoch, save_best=best, only_best=True)
-
-            if stop_process:  # early_stop
-                break
+            if epoch % self.save_period == 0:
+                self._save_checkpoint(epoch)
 
     def _train_epoch(self, epoch):
         """
@@ -198,7 +163,8 @@ class BaseTrainer:
                 this epoch.
         """
         self.is_train = True
-        self.model.train()
+        self.generator.train()
+        self.discriminator.train()
         self.train_metrics.reset()
         self.writer.set_step((epoch - 1) * self.epoch_len)
         self.writer.add_scalar("epoch", epoch)
@@ -224,12 +190,21 @@ class BaseTrainer:
             if batch_idx % self.log_step == 0:
                 self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
                 self.logger.debug(
-                    "Train Epoch: {} {} Loss: {:.6f}".format(
-                        epoch, self._progress(batch_idx), batch["loss"].item()
+                    "Train Epoch: {} {} Generator loss: {:.6f} "
+                    "Discriminator loss: {:.6f}".format(
+                        epoch,
+                        self._progress(batch_idx),
+                        batch["loss_generator"].item(),
+                        batch["loss_discriminator"].item(),
                     )
                 )
                 self.writer.add_scalar(
-                    "learning rate", self.lr_scheduler.get_last_lr()[0]
+                    "generator learning rate",
+                    self.generator_optimizer.param_groups[0]["lr"],
+                )
+                self.writer.add_scalar(
+                    "discriminator learning rate",
+                    self.discriminator_optimizer.param_groups[0]["lr"],
                 )
                 self._log_scalars(self.train_metrics)
                 self._log_batch(batch_idx, batch)
@@ -261,7 +236,8 @@ class BaseTrainer:
             logs (dict): logs that contain the information about evaluation.
         """
         self.is_train = False
-        self.model.eval()
+        self.generator.eval()
+        self.discriminator.eval()
         self.evaluation_metrics.reset()
         with torch.no_grad():
             for batch_idx, batch in tqdm(
@@ -281,58 +257,6 @@ class BaseTrainer:
 
         return self.evaluation_metrics.result()
 
-    def _monitor_performance(self, logs, not_improved_count):
-        """
-        Check if there is an improvement in the metrics. Used for early
-        stopping and saving the best checkpoint.
-
-        Args:
-            logs (dict): logs after training and evaluating the model for
-                an epoch.
-            not_improved_count (int): the current number of epochs without
-                improvement.
-        Returns:
-            best (bool): if True, the monitored metric has improved.
-            stop_process (bool): if True, stop the process (early stopping).
-                The metric did not improve for too much epochs.
-            not_improved_count (int): updated number of epochs without
-                improvement.
-        """
-        best = False
-        stop_process = False
-        if self.mnt_mode != "off":
-            try:
-                # check whether model performance improved or not,
-                # according to specified metric(mnt_metric)
-                if self.mnt_mode == "min":
-                    improved = logs[self.mnt_metric] <= self.mnt_best
-                elif self.mnt_mode == "max":
-                    improved = logs[self.mnt_metric] >= self.mnt_best
-                else:
-                    improved = False
-            except KeyError:
-                self.logger.warning(
-                    f"Warning: Metric '{self.mnt_metric}' is not found. "
-                    "Model performance monitoring is disabled."
-                )
-                self.mnt_mode = "off"
-                improved = False
-
-            if improved:
-                self.mnt_best = logs[self.mnt_metric]
-                not_improved_count = 0
-                best = True
-            else:
-                not_improved_count += 1
-
-            if not_improved_count >= self.early_stop:
-                self.logger.info(
-                    "Validation performance didn't improve for {} epochs. "
-                    "Training stops.".format(self.early_stop)
-                )
-                stop_process = True
-        return best, stop_process, not_improved_count
-
     def move_batch_to_device(self, batch):
         """
         Move all necessary tensors to the device.
@@ -348,41 +272,6 @@ class BaseTrainer:
             batch[tensor_for_device] = batch[tensor_for_device].to(self.device)
         return batch
 
-    def transform_batch(self, batch):
-        """
-        Transforms elements in batch. Like instance transform inside the
-        BaseDataset class, but for the whole batch. Improves pipeline speed,
-        especially if used with a GPU.
-
-        Each tensor in a batch undergoes its own transform defined by the key.
-
-        Args:
-            batch (dict): dict-based batch containing the data from
-                the dataloader.
-        Returns:
-            batch (dict): dict-based batch containing the data from
-                the dataloader (possibly transformed via batch transform).
-        """
-        # do batch transforms on device
-        transform_type = "train" if self.is_train else "inference"
-        transforms = self.batch_transforms.get(transform_type)
-        if transforms is not None:
-            for transform_name in transforms.keys():
-                batch[transform_name] = transforms[transform_name](
-                    batch[transform_name]
-                )
-        return batch
-
-    def _clip_grad_norm(self):
-        """
-        Clips the gradient norm by the value defined in
-        config.trainer.max_grad_norm
-        """
-        if self.config["trainer"].get("max_grad_norm", None) is not None:
-            clip_grad_norm_(
-                self.model.parameters(), self.config["trainer"]["max_grad_norm"]
-            )
-
     @torch.no_grad()
     def _get_grad_norm(self, norm_type=2):
         """
@@ -393,10 +282,14 @@ class BaseTrainer:
         Returns:
             total_norm (float): the calculated norm.
         """
-        parameters = self.model.parameters()
+        parameters = list(self.generator.parameters()) + list(
+            self.discriminator.parameters()
+        )
         if isinstance(parameters, torch.Tensor):
             parameters = [parameters]
         parameters = [p for p in parameters if p.grad is not None]
+        if len(parameters) == 0:
+            return 0.0
         total_norm = torch.norm(
             torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]),
             norm_type,
@@ -462,14 +355,17 @@ class BaseTrainer:
                 'model_best.pth'(do not duplicate the checkpoint as
                 checkpoint-epochEpochNumber.pth)
         """
-        arch = type(self.model).__name__
+        arch = {
+            "generator": type(self.generator).__name__,
+            "discriminator": type(self.discriminator).__name__,
+        }
         state = {
             "arch": arch,
             "epoch": epoch,
-            "state_dict": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "lr_scheduler": self.lr_scheduler.state_dict(),
-            "monitor_best": self.mnt_best,
+            "generator_state_dict": self.generator.state_dict(),
+            "discriminator_state_dict": self.discriminator.state_dict(),
+            "generator_optimizer": self.generator_optimizer.state_dict(),
+            "discriminator_optimizer": self.discriminator_optimizer.state_dict(),
             "config": self.config,
         }
         filename = str(self.checkpoint_dir / f"checkpoint-epoch{epoch}.pth")
@@ -501,53 +397,36 @@ class BaseTrainer:
         self.logger.info(f"Loading checkpoint: {resume_path} ...")
         checkpoint = torch.load(resume_path, self.device)
         self.start_epoch = checkpoint["epoch"] + 1
-        self.mnt_best = checkpoint["monitor_best"]
 
         # load architecture params from checkpoint.
-        if checkpoint["config"]["model"] != self.config["model"]:
+        if checkpoint["config"].get("generator") != self.config.get(
+            "generator"
+        ) or checkpoint["config"].get("discriminator") != self.config.get(
+            "discriminator"
+        ):
             self.logger.warning(
                 "Warning: Architecture configuration given in the config file is different from that "
                 "of the checkpoint. This may yield an exception when state_dict is loaded."
             )
-        self.model.load_state_dict(checkpoint["state_dict"])
+        self.generator.load_state_dict(checkpoint["generator_state_dict"])
+        self.discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
 
         # load optimizer state from checkpoint only when optimizer type is not changed.
-        if (
-            checkpoint["config"]["optimizer"] != self.config["optimizer"]
-            or checkpoint["config"]["lr_scheduler"] != self.config["lr_scheduler"]
+        if checkpoint["config"].get("generator_optimizer") != self.config.get(
+            "generator_optimizer"
+        ) or checkpoint["config"].get("discriminator_optimizer") != self.config.get(
+            "discriminator_optimizer"
         ):
             self.logger.warning(
-                "Warning: Optimizer or lr_scheduler given in the config file is different "
-                "from that of the checkpoint. Optimizer and scheduler parameters "
-                "are not resumed."
+                "Warning: Optimizers given in the config file are different "
+                "from those of the checkpoint. Optimizer parameters are not resumed."
             )
         else:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
-            self.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+            self.generator_optimizer.load_state_dict(checkpoint["generator_optimizer"])
+            self.discriminator_optimizer.load_state_dict(
+                checkpoint["discriminator_optimizer"]
+            )
 
         self.logger.info(
             f"Checkpoint loaded. Resume training from epoch {self.start_epoch}"
         )
-
-    def _from_pretrained(self, pretrained_path):
-        """
-        Init model with weights from pretrained pth file.
-
-        Notice that 'pretrained_path' can be any path on the disk. It is not
-        necessary to locate it in the experiment saved dir. The function
-        initializes only the model.
-
-        Args:
-            pretrained_path (str): path to the model state dict.
-        """
-        pretrained_path = str(pretrained_path)
-        if hasattr(self, "logger"):  # to support both trainer and inferencer
-            self.logger.info(f"Loading model weights from: {pretrained_path} ...")
-        else:
-            print(f"Loading model weights from: {pretrained_path} ...")
-        checkpoint = torch.load(pretrained_path, self.device)
-
-        if checkpoint.get("state_dict") is not None:
-            self.model.load_state_dict(checkpoint["state_dict"])
-        else:
-            self.model.load_state_dict(checkpoint)

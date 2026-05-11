@@ -1,23 +1,30 @@
 defaults:
-  - model: baseline
   - writer: cometml
-  - metrics: example
+  - metrics: soundstream
   - datasets: librispeech
-  - dataloader: example
-  - transforms: soundstream
+  - dataloader: soundstream
   - _self_
 
-optimizer:
+
+generator:
+  _target_: src.model.generator.SoundStreamGenerator
+
+discriminator:
+  _target_: src.model.discriminator.SoundStreamDiscriminator
+
+generator_optimizer:
   _target_: torch.optim.Adam
-  lr: 3e-4
+  lr: 2e-4
 
-lr_scheduler:
-  _target_: torch.optim.lr_scheduler.StepLR
-  gamma: 1.0
-  step_size: ${trainer.epoch_len}
+discriminator_optimizer:
+  _target_: torch.optim.Adam
+  lr: 2e-4
 
-loss_function:
-  _target_: src.loss.ExampleLoss
+generator_loss_function:
+  _target_: src.loss.soundstream_loss.SoundStreamGeneratorLoss
+
+discriminator_loss_function:
+  _target_: src.loss.soundstream_loss.SoundStreamDiscriminatorLoss
 
 trainer:
   seed: 1
@@ -40,27 +47,4 @@ data:
 audio:
   sample_rate: 16000
   crop_seconds: 0.5
-  crop_size: 8000
   channels: 1
-
-model_params:
-  strides: [2, 4, 5, 5]
-  encoder_channels: 32
-  embedding_dim: 128
-  causal: true
-  use_film: false
-  use_bitrate_dropout: false
-
-rvq:
-  num_quantizers: 8
-  codebook_size: 1024
-  commitment_loss_weight: 1.0
-
-loss_weights:
-  adversarial: 1.0
-  feature_matching: 100.0
-  reconstruction: 1.0
-  commitment: 1.0
-
-discriminator:
-  leaky_relu_slope: 0.2

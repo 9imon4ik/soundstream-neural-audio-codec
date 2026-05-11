@@ -7,14 +7,14 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from src.datasets.data_utils import get_dataloaders
-from src.trainer import Trainer
+from src.trainer.trainer import Trainer
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
 
 warnings.filterwarnings("ignore", category=UserWarning)
 load_dotenv()
 
 
-@hydra.main(version_base=None, config_path="src/configs", config_name="baseline")
+@hydra.main(version_base=None, config_path="src/configs", config_name="soundstream")
 def main(config):
     """
     Main script for training. Instantiates the model, optimizer, scheduler,
@@ -36,39 +36,49 @@ def main(config):
         device = config.trainer.device
 
     # setup data_loader instances
-    # batch_transforms should be put on device
-    dataloaders, batch_transforms = get_dataloaders(config, device)
+    dataloaders = get_dataloaders(config)
 
     # build model architecture, then print to console
-    model = instantiate(config.model).to(device)
-    logger.info(model)
-
-    # get function handles of loss and metrics
-    loss_function = instantiate(config.loss_function).to(device)
-    metrics = instantiate(config.metrics)
+    generator = instantiate(config.generator).to(device)
+    logger.info(generator)
+    discriminator = instantiate(config.discriminator).to(device)
+    logger.info(discriminator)
 
     # build optimizer, learning rate scheduler
-    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = instantiate(config.optimizer, params=trainable_params)
-    lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer)
+    generator_params = filter(lambda p: p.requires_grad, generator.parameters())
+    generator_optimizer = instantiate(
+        config.generator_optimizer, params=generator_params
+    )
+    discriminator_params = filter(lambda p: p.requires_grad, discriminator.parameters())
+    discriminator_optimizer = instantiate(
+        config.discriminator_optimizer, params=discriminator_params
+    )
+
+    # get function handles of loss and metrics
+    generator_loss_function = instantiate(config.generator_loss_function).to(device)
+    discriminator_loss_function = instantiate(config.discriminator_loss_function).to(
+        device
+    )
+    metrics = instantiate(config.metrics)
 
     # epoch_len = number of iterations for iteration-based training
     # epoch_len = None or len(dataloader) for epoch-based training
     epoch_len = config.trainer.get("epoch_len")
 
     trainer = Trainer(
-        model=model,
-        criterion=loss_function,
+        generator=generator,
+        discriminator=discriminator,
+        generator_criterion=generator_loss_function,
+        discriminator_criterion=discriminator_loss_function,
         metrics=metrics,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
+        generator_optimizer=generator_optimizer,
+        discriminator_optimizer=discriminator_optimizer,
         config=config,
         device=device,
         dataloaders=dataloaders,
         epoch_len=epoch_len,
         logger=logger,
         writer=writer,
-        batch_transforms=batch_transforms,
         skip_oom=config.trainer.get("skip_oom", True),
     )
 

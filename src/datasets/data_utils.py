@@ -18,23 +18,16 @@ def inf_loop(dataloader):
         yield from loader
 
 
-def get_dataloaders(config, device):
+def get_dataloaders(config):
     """
     Create dataloaders for each of the dataset partitions.
-    Also creates instance and batch transforms.
 
     Args:
         config (DictConfig): hydra experiment config.
-        device (str): device to use for batch transforms.
     Returns:
         dataloaders (dict[DataLoader]): dict containing dataloader for a
             partition defined by key.
-        batch_transforms (dict[Callable] | None): transforms that
-            should be applied on the whole batch. Depend on the
-            tensor name.
     """
-    batch_transforms = {"train": None, "inference": None}
-
     # dataset partitions init
     datasets = instantiate(config.datasets)  # instance transforms are defined inside
 
@@ -58,4 +51,4 @@ def get_dataloaders(config, device):
         )
         dataloaders[dataset_partition] = partition_dataloader
 
-    return dataloaders, batch_transforms
+    return dataloaders

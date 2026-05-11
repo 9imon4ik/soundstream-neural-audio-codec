@@ -1,4 +1,5 @@
-from src.metrics.tracker import MetricTracker
+import torch
+
 from src.trainer.base_trainer import BaseTrainer
 
 
@@ -7,53 +8,109 @@ class Trainer(BaseTrainer):
     Trainer class. Defines the logic of batch logging and processing.
     """
 
-    def process_batch(self, batch, metrics: MetricTracker):
-        """
-        Run batch through the model, compute metrics, compute loss,
-        and do training step (during training stage).
-
-        The function expects that criterion aggregates all losses
-        (if there are many) into a single one defined in the 'loss' key.
-
-        Args:
-            batch (dict): dict-based batch containing the data from
-                the dataloader.
-            metrics (MetricTracker): MetricTracker object that computes
-                and aggregates the metrics. The metrics depend on the type of
-                the partition (train or inference).
-        Returns:
-            batch (dict): dict-based batch containing the data from
-                the dataloader (possibly transformed via batch transform),
-                model outputs, and losses.
-        """
+    def process_batch(self, batch, metrics):
         batch = self.move_batch_to_device(batch)
-        batch = self.transform_batch(batch)  # transform batch on device -- faster
 
-        metric_funcs = self.metrics["inference"]
         if self.is_train:
+            discriminator_losses = self.train_discriminator(batch)
+            generator_outputs, generator_losses = self.train_generator(batch)
+
+            batch.update(discriminator_losses)
+            batch.update(generator_outputs)
+            batch.update(generator_losses)
             metric_funcs = self.metrics["train"]
-            self.optimizer.zero_grad()
+        else:
+            batch = self.evaluate_batch(batch)
+            metric_funcs = self.metrics["inference"]
 
-        outputs = self.model(**batch)
-        batch.update(outputs)
-
-        all_losses = self.criterion(**batch)
-        batch.update(all_losses)
-
-        if self.is_train:
-            batch["loss"].backward()  # sum of all losses is always called loss
-            self._clip_grad_norm()
-            self.optimizer.step()
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
-
-        # update metrics for each loss (in case of multiple losses)
         for loss_name in self.config.writer.loss_names:
-            metrics.update(loss_name, batch[loss_name].item())
+            if loss_name not in batch:
+                continue
+            value = batch[loss_name]
+            if isinstance(value, torch.Tensor):
+                value = value.item()
+            metrics.update(loss_name, value)
 
-        for met in metric_funcs:
-            metrics.update(met.name, met(**batch))
+        for metric in metric_funcs:
+            metrics.update(metric.name, metric(**batch))
+
         return batch
+
+    def train_discriminator(self, batch):
+        audio = batch["audio"]
+
+        with torch.no_grad():
+            generator_outputs = self.generator(audio)
+            reconstructed_audio = generator_outputs["reconstructed_audio"]
+
+        real_outputs = self.discriminator(audio)
+        fake_outputs = self.discriminator(reconstructed_audio.detach())
+        losses = self.discriminator_criterion(
+            real_outputs=real_outputs,
+            fake_outputs=fake_outputs,
+        )
+
+        self.discriminator_optimizer.zero_grad()
+        losses["loss_discriminator"].backward()
+        self.discriminator_optimizer.step()
+
+        return self._detach_values(losses)
+
+    def train_generator(self, batch):
+        audio = batch["audio"]
+
+        generator_outputs = self.generator(audio)
+        reconstructed_audio = generator_outputs["reconstructed_audio"]
+
+        fake_outputs = self.discriminator(reconstructed_audio)
+        with torch.no_grad():
+            real_outputs = self.discriminator(audio)
+
+        losses = self.generator_criterion(
+            real_audio=audio,
+            reconstructed_audio=reconstructed_audio,
+            real_outputs=real_outputs,
+            fake_outputs=fake_outputs,
+            generator_outputs=generator_outputs,
+        )
+
+        self.generator_optimizer.zero_grad()
+        losses["loss_generator"].backward()
+        self.generator_optimizer.step()
+
+        return generator_outputs, self._detach_values(losses)
+
+    def evaluate_batch(self, batch):
+        audio = batch["audio"]
+        generator_outputs = self.generator(audio)
+        reconstructed_audio = generator_outputs["reconstructed_audio"]
+
+        real_outputs = self.discriminator(audio)
+        fake_outputs = self.discriminator(reconstructed_audio)
+
+        discriminator_losses = self.discriminator_criterion(
+            real_outputs=real_outputs,
+            fake_outputs=fake_outputs,
+        )
+        generator_losses = self.generator_criterion(
+            real_audio=audio,
+            reconstructed_audio=reconstructed_audio,
+            real_outputs=real_outputs,
+            fake_outputs=fake_outputs,
+            generator_outputs=generator_outputs,
+        )
+
+        batch.update(generator_outputs)
+        batch.update(self._detach_values(discriminator_losses))
+        batch.update(self._detach_values(generator_losses))
+        return batch
+
+    @staticmethod
+    def _detach_values(values):
+        return {
+            key: value.detach() if hasattr(value, "detach") else value
+            for key, value in values.items()
+        }
 
     def _log_batch(self, batch_idx, batch, mode="train"):
         """

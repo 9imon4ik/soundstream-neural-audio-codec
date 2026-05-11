@@ -22,7 +22,6 @@ class Inferencer(BaseTrainer):
         dataloaders,
         save_path,
         metrics=None,
-        batch_transforms=None,
         skip_model_load=False,
     ):
         """
@@ -39,9 +38,6 @@ class Inferencer(BaseTrainer):
             metrics (dict): dict with the definition of metrics for
                 inference (metrics[inference]). Each metric is an instance
                 of src.metrics.BaseMetric.
-            batch_transforms (dict[nn.Module] | None): transforms that
-                should be applied on the whole batch. Depend on the
-                tensor name.
             skip_model_load (bool): if False, require the user to set
                 pre-trained checkpoint path. Set this argument to True if
                 the model desirable weights are defined outside of the
@@ -57,7 +53,6 @@ class Inferencer(BaseTrainer):
         self.device = device
 
         self.model = model
-        self.batch_transforms = batch_transforms
 
         # define dataloaders
         self.evaluation_dataloaders = {k: v for k, v in dataloaders.items()}
