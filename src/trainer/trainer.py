@@ -71,7 +71,7 @@ class Trainer(BaseTrainer):
             reconstructed_audio=reconstructed_audio,
             real_outputs=real_outputs,
             fake_outputs=fake_outputs,
-            generator_outputs=generator_outputs,
+            commitment_loss=generator_outputs["commitment_loss"],
         )
 
         self.generator_optimizer.zero_grad()
@@ -97,7 +97,7 @@ class Trainer(BaseTrainer):
             reconstructed_audio=reconstructed_audio,
             real_outputs=real_outputs,
             fake_outputs=fake_outputs,
-            generator_outputs=generator_outputs,
+            commitment_loss=generator_outputs["commitment_loss"],
         )
 
         batch.update(generator_outputs)
