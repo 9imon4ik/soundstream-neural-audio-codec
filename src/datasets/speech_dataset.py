@@ -5,15 +5,13 @@ import torch.nn.functional as F
 import torchaudio
 
 
-class LibriSpeechDataset(torch.utils.data.Dataset):
+class SpeechDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, sample_rate, is_train, crop_seconds):
         self.root_dir = root_dir
         self.sample_rate = sample_rate
         self.is_train = is_train
         self.crop_seconds = crop_seconds
         self.files = sorted(Path(root_dir).rglob("*.flac"))
-        if len(self.files) == 0:
-            raise RuntimeError(f"No .flac files found in {root_dir}")
 
     def __len__(self):
         return len(self.files)

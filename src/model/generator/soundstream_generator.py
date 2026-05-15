@@ -1,8 +1,8 @@
 import torch.nn as nn
 
-from src.model.decoder import SoundStreamDecoder
-from src.model.encoder import SoundStreamEncoder
-from src.model.quantizer import SoundStreamQuantizer
+from src.model.generator.decoder import SoundStreamDecoder
+from src.model.generator.encoder import SoundStreamEncoder
+from src.model.generator.quantizer import SoundStreamQuantizer
 
 
 class SoundStreamGenerator(nn.Module):

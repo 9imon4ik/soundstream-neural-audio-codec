@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 class CausalConv1d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation, stride):
         super().__init__()
         self.left_padding = dilation * (kernel_size - 1)
         self.conv = nn.Conv1d(
@@ -43,12 +43,13 @@ class ResidualUnit(nn.Module):
     def __init__(self, channels, kernel_size, dilation):
         super().__init__()
 
-        self.encoder = nn.Sequential(
+        self.unit = nn.Sequential(
             CausalConv1d(
                 in_channels=channels,
                 out_channels=channels,
                 kernel_size=kernel_size,
                 dilation=dilation,
+                stride=1,
             ),
             nn.ELU(),
             nn.Conv1d(in_channels=channels, out_channels=channels, kernel_size=1),
@@ -56,4 +57,4 @@ class ResidualUnit(nn.Module):
         )
 
     def forward(self, x):
-        return x + self.encoder(x)
+        return x + self.unit(x)

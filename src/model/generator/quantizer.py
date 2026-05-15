@@ -4,7 +4,7 @@ from torch import nn
 
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, embedding_dim, codebook_size, decay=0.99, dead_code_threshold=2):
+    def __init__(self, embedding_dim, codebook_size, decay, dead_code_threshold):
         super().__init__()
 
         self.decay = decay
@@ -95,9 +95,9 @@ class SoundStreamQuantizer(nn.Module):
         num_quantizers,
         embedding_dim,
         codebook_size,
-        kmeans_iters=10,
-        decay=0.99,
-        dead_code_threshold=2,
+        kmeans_iters,
+        decay,
+        dead_code_threshold,
     ):
         super().__init__()
 

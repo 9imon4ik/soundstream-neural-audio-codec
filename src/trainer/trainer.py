@@ -43,18 +43,18 @@ class Trainer(BaseTrainer):
             generator_outputs = self.generator(audio)
             reconstructed_audio = generator_outputs["reconstructed_audio"]
 
-        real_outputs = self.discriminator(audio)
-        fake_outputs = self.discriminator(reconstructed_audio.detach())
-        losses = self.discriminator_criterion(
-            real_outputs=real_outputs,
-            fake_outputs=fake_outputs,
+        real_discriminator = self.discriminator(audio)
+        fake_discriminator = self.discriminator(reconstructed_audio.detach())
+        loss_discriminator = self.discriminator_criterion(
+            real_logits=real_discriminator["logits"],
+            fake_logits=fake_discriminator["logits"],
         )
 
         self.discriminator_optimizer.zero_grad()
-        losses["loss_discriminator"].backward()
+        loss_discriminator.backward()
         self.discriminator_optimizer.step()
 
-        return self._detach_values(losses)
+        return {"loss_discriminator": loss_discriminator.detach()}
 
     def train_generator(self, batch):
         audio = batch["audio"]
@@ -62,47 +62,59 @@ class Trainer(BaseTrainer):
         generator_outputs = self.generator(audio)
         reconstructed_audio = generator_outputs["reconstructed_audio"]
 
-        fake_outputs = self.discriminator(reconstructed_audio)
+        fake_discriminator = self.discriminator(reconstructed_audio)
         with torch.no_grad():
-            real_outputs = self.discriminator(audio)
+            real_discriminator = self.discriminator(audio)
 
-        losses = self.generator_criterion(
+        loss_generator = self.generator_criterion(
             real_audio=audio,
             reconstructed_audio=reconstructed_audio,
-            real_outputs=real_outputs,
-            fake_outputs=fake_outputs,
+            real_logits=real_discriminator["logits"],
+            fake_logits=fake_discriminator["logits"],
+            real_features=real_discriminator["features"],
+            fake_features=fake_discriminator["features"],
             commitment_loss=generator_outputs["commitment_loss"],
         )
 
         self.generator_optimizer.zero_grad()
-        losses["loss_generator"].backward()
+        loss_generator.backward()
         self.generator_optimizer.step()
 
-        return generator_outputs, self._detach_values(losses)
+        return generator_outputs, {
+            "loss_generator": loss_generator.detach(),
+            "loss_commitment": generator_outputs["commitment_loss"].detach(),
+        }
 
     def evaluate_batch(self, batch):
         audio = batch["audio"]
         generator_outputs = self.generator(audio)
         reconstructed_audio = generator_outputs["reconstructed_audio"]
 
-        real_outputs = self.discriminator(audio)
-        fake_outputs = self.discriminator(reconstructed_audio)
+        real_discriminator = self.discriminator(audio)
+        fake_discriminator = self.discriminator(reconstructed_audio)
 
-        discriminator_losses = self.discriminator_criterion(
-            real_outputs=real_outputs,
-            fake_outputs=fake_outputs,
+        loss_discriminator = self.discriminator_criterion(
+            real_logits=real_discriminator["logits"],
+            fake_logits=fake_discriminator["logits"],
         )
-        generator_losses = self.generator_criterion(
+        loss_generator = self.generator_criterion(
             real_audio=audio,
             reconstructed_audio=reconstructed_audio,
-            real_outputs=real_outputs,
-            fake_outputs=fake_outputs,
+            real_logits=real_discriminator["logits"],
+            fake_logits=fake_discriminator["logits"],
+            real_features=real_discriminator["features"],
+            fake_features=fake_discriminator["features"],
             commitment_loss=generator_outputs["commitment_loss"],
         )
 
         batch.update(generator_outputs)
-        batch.update(self._detach_values(discriminator_losses))
-        batch.update(self._detach_values(generator_losses))
+        batch.update(
+            {
+                "loss_discriminator": loss_discriminator.detach(),
+                "loss_generator": loss_generator.detach(),
+                "loss_commitment": generator_outputs["commitment_loss"].detach(),
+            }
+        )
         return batch
 
     @staticmethod

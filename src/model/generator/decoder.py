@@ -1,6 +1,10 @@
 import torch.nn as nn
 
-from src.model.modules import CausalConv1d, CausalConvTranspose1d, ResidualUnit
+from src.model.generator.modules import (
+    CausalConv1d,
+    CausalConvTranspose1d,
+    ResidualUnit,
+)
 
 
 class DecoderBlock(nn.Module):
@@ -54,6 +58,8 @@ class SoundStreamDecoder(nn.Module):
                 in_channels=embedding_dim,
                 out_channels=16 * hidden_channels,
                 kernel_size=input_kernel_size,
+                dilation=1,
+                stride=1,
             ),
             nn.ELU(),
             DecoderBlock(
@@ -84,6 +90,8 @@ class SoundStreamDecoder(nn.Module):
                 in_channels=hidden_channels * 1,
                 out_channels=1,
                 kernel_size=output_kernel_size,
+                dilation=1,
+                stride=1,
             ),
         )
 

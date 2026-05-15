@@ -7,7 +7,7 @@ defaults:
 
 
 generator:
-  _target_: src.model.generator.SoundStreamGenerator
+  _target_: src.model.generator.soundstream_generator.SoundStreamGenerator
   strides: [2, 4, 5, 5]
   hidden_channels: 32
   embedding_dim: 128
@@ -28,7 +28,26 @@ generator:
     dead_code_threshold: 2
 
 discriminator:
-  _target_: src.model.discriminator.SoundStreamDiscriminator
+  _target_: src.model.discriminator.soundstream_discriminator.SoundStreamDiscriminator
+  negative_slope: 0.2
+  waves:
+    input_kernel_size: 15
+    input_out_channels: 16
+    stack_kernel_size: 41
+    stack_stride: 4
+    stack_out_channels: [64, 256, 1024, 1024]
+    stack_groups: [4, 16, 64, 256]
+    head_kernel_sizes: [5, 3]
+    head_out_channels: [1024, 1]
+  stft:
+    window_length: 1024
+    hop_length: 256
+    frequency_bins: 512
+    hidden_channels: 32
+    input_kernel_size: [7, 7]
+    residual_kernel_size: [3, 3]
+    channel_multipliers: [2, 2, 1, 2, 1, 2]
+    strides: [[1, 2], [2, 2], [1, 2], [2, 2], [1, 2], [2, 2]]
 
 generator_optimizer:
   _target_: torch.optim.Adam
