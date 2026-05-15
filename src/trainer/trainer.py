@@ -66,7 +66,7 @@ class Trainer(BaseTrainer):
         with torch.no_grad():
             real_discriminator = self.discriminator(audio)
 
-        loss_generator = self.generator_criterion(
+        generator_losses = self.generator_criterion(
             real_audio=audio,
             reconstructed_audio=reconstructed_audio,
             real_logits=real_discriminator["logits"],
@@ -77,11 +77,11 @@ class Trainer(BaseTrainer):
         )
 
         self.generator_optimizer.zero_grad()
-        loss_generator.backward()
+        generator_losses["loss_generator"].backward()
         self.generator_optimizer.step()
 
         return generator_outputs, {
-            "loss_generator": loss_generator.detach(),
+            **self._detach_values(generator_losses),
             "loss_commitment": generator_outputs["commitment_loss"].detach(),
         }
 
@@ -97,7 +97,7 @@ class Trainer(BaseTrainer):
             real_logits=real_discriminator["logits"],
             fake_logits=fake_discriminator["logits"],
         )
-        loss_generator = self.generator_criterion(
+        generator_losses = self.generator_criterion(
             real_audio=audio,
             reconstructed_audio=reconstructed_audio,
             real_logits=real_discriminator["logits"],
@@ -111,7 +111,7 @@ class Trainer(BaseTrainer):
         batch.update(
             {
                 "loss_discriminator": loss_discriminator.detach(),
-                "loss_generator": loss_generator.detach(),
+                **self._detach_values(generator_losses),
                 "loss_commitment": generator_outputs["commitment_loss"].detach(),
             }
         )
@@ -125,24 +125,8 @@ class Trainer(BaseTrainer):
         }
 
     def _log_batch(self, batch_idx, batch, mode="train"):
-        """
-        Log data from batch. Calls self.writer.add_* to log data
-        to the experiment tracker.
-
-        Args:
-            batch_idx (int): index of the current batch.
-            batch (dict): dict-based batch after going through
-                the 'process_batch' function.
-            mode (str): train or inference. Defines which logging
-                rules to apply.
-        """
-        # method to log data from you batch
-        # such as audio, text or images, for example
-
-        # logging scheme might be different for different partitions
-        if mode == "train":  # the method is called only every self.log_step steps
-            # Log Stuff
-            pass
-        else:
-            # Log Stuff
-            pass
+        sample_rate = self.config.audio.sample_rate
+        self.writer.add_audio("original", batch["audio"][0], sample_rate=sample_rate)
+        self.writer.add_audio(
+            "reconstructed", batch["reconstructed_audio"][0], sample_rate=sample_rate
+        )

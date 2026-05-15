@@ -145,8 +145,20 @@ class SoundStreamQuantizer(nn.Module):
 
         codebook_indices = torch.stack(codebook_indices, dim=-1)
 
+        size = self.quantizers[0].codebook.shape[0]
+        perplexities = []
+        for k in range(codebook_indices.shape[-1]):
+            counts = torch.bincount(
+                codebook_indices[..., k].reshape(-1), minlength=size
+            ).float()
+            probs = counts / counts.sum()
+            probs = probs[probs > 0]
+            perplexities.append(torch.exp(-(probs * probs.log()).sum()))
+        codebook_perplexity = torch.stack(perplexities).mean()
+
         return {
             "quantized": x + (quantized_sum - x).detach(),
             "codebook_indices": codebook_indices,
             "commitment_loss": commitment_loss,
+            "codebook_perplexity": codebook_perplexity,
         }

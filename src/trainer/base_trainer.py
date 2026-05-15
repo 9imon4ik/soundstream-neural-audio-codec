@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from itertools import islice
 
 import torch
 from tqdm.auto import tqdm
@@ -61,7 +62,8 @@ class BaseTrainer:
         self.skip_oom = skip_oom
 
         self.logger = logger
-        self.log_step = config.trainer.get("log_step", 50)
+        self.log_step = config.trainer.get("log_step")
+        self.max_eval_batches = config.trainer.max_eval_batches
 
         self.generator = generator
         self.discriminator = discriminator
@@ -241,9 +243,9 @@ class BaseTrainer:
         self.evaluation_metrics.reset()
         with torch.no_grad():
             for batch_idx, batch in tqdm(
-                enumerate(dataloader),
+                enumerate(islice(dataloader, self.max_eval_batches)),
                 desc=part,
-                total=len(dataloader),
+                total=self.max_eval_batches,
             ):
                 batch = self.process_batch(
                     batch,

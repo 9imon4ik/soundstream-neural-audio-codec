@@ -73,6 +73,7 @@ trainer:
   log_step: 50
   n_epochs: 100
   epoch_len: 450
+  max_eval_batches: 5
   device_tensors: ["audio"]
   resume_from: null
   override: false

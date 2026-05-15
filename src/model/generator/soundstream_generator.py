@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 
 from src.model.generator.decoder import SoundStreamDecoder
 from src.model.generator.encoder import SoundStreamEncoder
@@ -51,9 +52,15 @@ class SoundStreamGenerator(nn.Module):
         encoded = self.encoder(x)
         quantized = self.quantizer(encoded)
         decoded = self.decoder(quantized["quantized"])
+        length = x.shape[-1]
+        if decoded.shape[-1] > length:
+            decoded = decoded[..., :length]
+        elif decoded.shape[-1] < length:
+            decoded = F.pad(decoded, (0, length - decoded.shape[-1]))
 
         return {
             "reconstructed_audio": decoded,
             "codebook_indices": quantized["codebook_indices"],
             "commitment_loss": quantized["commitment_loss"],
+            "codebook_perplexity": quantized["codebook_perplexity"],
         }

@@ -84,11 +84,14 @@ class SoundStreamGeneratorLoss(nn.Module):
         reconstructed_audio = reconstructed_audio.squeeze(1)
         loss_rec = self._reconstruction_loss(real_audio, reconstructed_audio)
 
-        loss_generator = (
-            self.lambda_adv * loss_adv
-            + self.lambda_feat * loss_feat
-            + self.lambda_rec * loss_rec
-            + self.lambda_com * commitment_loss
-        )
-
-        return loss_generator
+        return {
+            "loss_generator": (
+                self.lambda_adv * loss_adv
+                + self.lambda_feat * loss_feat
+                + self.lambda_rec * loss_rec
+                + self.lambda_com * commitment_loss
+            ),
+            "loss_adversarial": loss_adv,
+            "loss_feature_matching": loss_feat,
+            "loss_reconstruction": loss_rec,
+        }

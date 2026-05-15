@@ -1,7 +1,7 @@
 _target_: src.logger.CometMLWriter
 project_name: "soundstream-neural-audio-codec"
 workspace: null
-run_name: "soundstream-dev"
+run_name: "soundstream-final"
 mode: "online"
 loss_names:
   - loss_generator
