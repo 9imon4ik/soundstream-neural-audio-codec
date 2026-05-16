@@ -1,64 +1,38 @@
-import warnings
+import io
 
 import hydra
-import torch
-from hydra.utils import instantiate
+import requests
+import torchaudio
 
-from src.datasets.data_utils import get_dataloaders
-from src.trainer.inferencer import Inferencer
-from src.utils.init_utils import set_random_seed
+from evaluate import get_device, load_generator, reconstruct_batch
 from src.utils.io_utils import ROOT_PATH
 
-warnings.filterwarnings("ignore", category=UserWarning)
+
+def load_audio(path, sample_rate):
+    path = str(path)
+    if path.startswith("http"):
+        wav, sr = torchaudio.load(io.BytesIO(requests.get(path, timeout=60).content))
+    else:
+        wav, sr = torchaudio.load(path)
+    audio = torchaudio.functional.resample(wav.mean(0, keepdim=True), sr, sample_rate)
+    return audio.unsqueeze(0) if audio.dim() == 2 else audio
 
 
 @hydra.main(version_base=None, config_path="src/configs", config_name="inference")
 def main(config):
-    """
-    Main script for inference. Instantiates the model, metrics, and
-    dataloaders. Runs Inferencer to calculate metrics and (or)
-    save predictions.
+    device = get_device()
+    fs = config.audio.sample_rate
 
-    Args:
-        config (DictConfig): hydra experiment config.
-    """
-    set_random_seed(config.inferencer.seed)
+    generator = load_generator(config, device)
+    audio = load_audio(config.inferencer.input, fs)
 
-    if config.inferencer.device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    else:
-        device = config.inferencer.device
+    recon = reconstruct_batch(generator, audio, device)
 
-    # setup data_loader instances
-    dataloaders = get_dataloaders(config)
+    out = ROOT_PATH / (config.inferencer.output or "data/saved/inference/reconstructed.wav")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    torchaudio.save(str(out), recon.squeeze(0).cpu(), fs)
 
-    # build model architecture, then print to console
-    model = instantiate(config.model).to(device)
-    print(model)
-
-    # get metrics
-    metrics = instantiate(config.metrics)
-
-    # save_path for model predictions
-    save_path = ROOT_PATH / "data" / "saved" / config.inferencer.save_path
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    inferencer = Inferencer(
-        model=model,
-        config=config,
-        device=device,
-        dataloaders=dataloaders,
-        save_path=save_path,
-        metrics=metrics,
-        skip_model_load=False,
-    )
-
-    logs = inferencer.run_inference()
-
-    for part in logs.keys():
-        for key, value in logs[part].items():
-            full_key = part + "_" + key
-            print(f"    {full_key:15s}: {value}")
+    print(f"Saved: {out}")
 
 
 if __name__ == "__main__":

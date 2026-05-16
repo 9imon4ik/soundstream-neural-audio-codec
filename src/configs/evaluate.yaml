@@ -1,0 +1,20 @@
+defaults:
+  - soundstream
+  - _self_
+
+writer:
+  run_id: wlqcmxsufeozaosf8crhkaod3ailgtyp
+
+datasets:
+  test:
+    _target_: src.datasets.speech_dataset.SpeechDataset
+    root_dir: ${data.test_root}
+    sample_rate: ${audio.sample_rate}
+    crop_seconds: ${audio.crop_seconds}
+    is_train: false
+
+dataloader:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 1
+  num_workers: 2
+  pin_memory: true

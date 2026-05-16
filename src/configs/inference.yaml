@@ -1,0 +1,8 @@
+defaults:
+  - soundstream
+  - _self_
+
+inferencer:
+  checkpoint: saved/soundstream-final/checkpoint-epoch100.pth
+  input: null
+  output: null
