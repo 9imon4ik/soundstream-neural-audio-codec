@@ -397,7 +397,11 @@ class BaseTrainer:
         """
         resume_path = str(resume_path)
         self.logger.info(f"Loading checkpoint: {resume_path} ...")
-        checkpoint = torch.load(resume_path, self.device)
+        checkpoint = torch.load(
+            resume_path,
+            map_location=self.device,
+            weights_only=False,
+        )
         self.start_epoch = checkpoint["epoch"] + 1
 
         # load architecture params from checkpoint.

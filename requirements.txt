@@ -1,7 +1,8 @@
-torch==2.2.0
-torchaudio==2.2.0
+torch==2.11.0
+torchaudio==2.11.0
+torchcodec>=0.8
 torchmetrics
-numpy==1.26.4
+numpy>=1.26.4,<3
 tqdm
 matplotlib
 pandas
